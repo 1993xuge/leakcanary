@@ -21,91 +21,104 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
 import com.squareup.leakcanary.internal.ForegroundService;
+
 import java.io.File;
 
 public abstract class AbstractAnalysisResultService extends ForegroundService {
 
-  private static final String ANALYZED_HEAP_PATH_EXTRA = "analyzed_heap_path_extra";
+    private static final String ANALYZED_HEAP_PATH_EXTRA = "analyzed_heap_path_extra";
 
-  public static void sendResultToListener(@NonNull Context context,
-      @NonNull String listenerServiceClassName,
-      @NonNull HeapDump heapDump,
-      @NonNull AnalysisResult result) {
-    Class<?> listenerServiceClass;
-    try {
-      listenerServiceClass = Class.forName(listenerServiceClassName);
-    } catch (ClassNotFoundException e) {
-      throw new RuntimeException(e);
+    // 将分析的结果发送到 listenerService中
+    public static void sendResultToListener(@NonNull Context context,
+                                            @NonNull String listenerServiceClassName,
+                                            @NonNull HeapDump heapDump,
+                                            @NonNull AnalysisResult result) {
+        // 根据ClassName 反射 listenerServiceClass
+        Class<?> listenerServiceClass;
+        try {
+            listenerServiceClass = Class.forName(listenerServiceClassName);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+        // 创建 Intent
+        Intent intent = new Intent(context, listenerServiceClass);
+
+        // 将 heapDump和 分析的结果 写入到文件中
+        File analyzedHeapFile = AnalyzedHeap.save(heapDump, result);
+        if (analyzedHeapFile != null) {
+            // 将文件的绝对路径 作为 参数 加入到 Intent中
+            intent.putExtra(ANALYZED_HEAP_PATH_EXTRA, analyzedHeapFile.getAbsolutePath());
+        }
+        // start service
+        ContextCompat.startForegroundService(context, intent);
     }
-    Intent intent = new Intent(context, listenerServiceClass);
 
-    File analyzedHeapFile = AnalyzedHeap.save(heapDump, result);
-    if (analyzedHeapFile != null) {
-      intent.putExtra(ANALYZED_HEAP_PATH_EXTRA, analyzedHeapFile.getAbsolutePath());
+    public AbstractAnalysisResultService() {
+        super(AbstractAnalysisResultService.class.getName(),
+                R.string.leak_canary_notification_reporting);
     }
-    ContextCompat.startForegroundService(context, intent);
-  }
 
-  public AbstractAnalysisResultService() {
-    super(AbstractAnalysisResultService.class.getName(),
-        R.string.leak_canary_notification_reporting);
-  }
+    @Override
+    protected final void onHandleIntentInForeground(@Nullable Intent intent) {
+        // intent为null，则抛出异常
+        if (intent == null) {
+            CanaryLog.d("AbstractAnalysisResultService received a null intent, ignoring.");
+            return;
+        }
 
-  @Override protected final void onHandleIntentInForeground(@Nullable Intent intent) {
-    if (intent == null) {
-      CanaryLog.d("AbstractAnalysisResultService received a null intent, ignoring.");
-      return;
+        // 检测 内存泄露结果文件 是否为null
+        if (!intent.hasExtra(ANALYZED_HEAP_PATH_EXTRA)) {
+            // null，则表明 分析失败
+            onAnalysisResultFailure(getString(R.string.leak_canary_result_failure_no_disk_space));
+            return;
+        }
+        // 根据路径，获取分析结果的文件
+        File analyzedHeapFile = new File(intent.getStringExtra(ANALYZED_HEAP_PATH_EXTRA));
+        AnalyzedHeap analyzedHeap = AnalyzedHeap.load(analyzedHeapFile);
+        if (analyzedHeap == null) {
+            onAnalysisResultFailure(getString(R.string.leak_canary_result_failure_no_file));
+            return;
+        }
+        try {
+            onHeapAnalyzed(analyzedHeap);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            analyzedHeap.heapDump.heapDumpFile.delete();
+            //noinspection ResultOfMethodCallIgnored
+            analyzedHeap.selfFile.delete();
+        }
     }
-    if (!intent.hasExtra(ANALYZED_HEAP_PATH_EXTRA)) {
-      onAnalysisResultFailure(getString(R.string.leak_canary_result_failure_no_disk_space));
-      return;
-    }
-    File analyzedHeapFile = new File(intent.getStringExtra(ANALYZED_HEAP_PATH_EXTRA));
-    AnalyzedHeap analyzedHeap = AnalyzedHeap.load(analyzedHeapFile);
-    if (analyzedHeap == null) {
-      onAnalysisResultFailure(getString(R.string.leak_canary_result_failure_no_file));
-      return;
-    }
-    try {
-      onHeapAnalyzed(analyzedHeap);
-    } finally {
-      //noinspection ResultOfMethodCallIgnored
-      analyzedHeap.heapDump.heapDumpFile.delete();
-      //noinspection ResultOfMethodCallIgnored
-      analyzedHeap.selfFile.delete();
-    }
-  }
 
-  /**
-   * Called after a heap dump is analyzed, whether or not a leak was found.
-   * In {@link AnalyzedHeap#result} check {@link AnalysisResult#leakFound} and {@link
-   * AnalysisResult#excludedLeak} to see if there was a leak and if it can be ignored.
-   * <p>
-   * This will be called from a background intent service thread.
-   * <p>
-   * It's OK to block here and wait for the heap dump to be uploaded.
-   * <p>
-   * The analyzed heap file and heap dump file will be deleted immediately after this callback
-   * returns.
-   */
-  protected void onHeapAnalyzed(@NonNull AnalyzedHeap analyzedHeap) {
-    onHeapAnalyzed(analyzedHeap.heapDump, analyzedHeap.result);
-  }
+    /**
+     * Called after a heap dump is analyzed, whether or not a leak was found.
+     * In {@link AnalyzedHeap#result} check {@link AnalysisResult#leakFound} and {@link
+     * AnalysisResult#excludedLeak} to see if there was a leak and if it can be ignored.
+     * <p>
+     * This will be called from a background intent service thread.
+     * <p>
+     * It's OK to block here and wait for the heap dump to be uploaded.
+     * <p>
+     * The analyzed heap file and heap dump file will be deleted immediately after this callback
+     * returns.
+     */
+    protected void onHeapAnalyzed(@NonNull AnalyzedHeap analyzedHeap) {
+        onHeapAnalyzed(analyzedHeap.heapDump, analyzedHeap.result);
+    }
 
-  /**
-   * @deprecated Maintained for backward compatibility. You should override {@link
-   * #onHeapAnalyzed(AnalyzedHeap)} instead.
-   */
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated
-  protected void onHeapAnalyzed(@NonNull HeapDump heapDump, @NonNull AnalysisResult result) {
-  }
+    /**
+     * @deprecated Maintained for backward compatibility. You should override {@link
+     * #onHeapAnalyzed(AnalyzedHeap)} instead.
+     */
+    @SuppressWarnings("DeprecatedIsStillUsed")
+    @Deprecated
+    protected void onHeapAnalyzed(@NonNull HeapDump heapDump, @NonNull AnalysisResult result) {
+    }
 
-  /**
-   * Called when there was an error saving or loading the analysis result. This will be called from
-   * a background intent service thread.
-   */
-  protected void onAnalysisResultFailure(String failureMessage) {
-    CanaryLog.d(failureMessage);
-  }
+    /**
+     * Called when there was an error saving or loading the analysis result. This will be called from
+     * a background intent service thread.
+     */
+    protected void onAnalysisResultFailure(String failureMessage) {
+        CanaryLog.d(failureMessage);
+    }
 }

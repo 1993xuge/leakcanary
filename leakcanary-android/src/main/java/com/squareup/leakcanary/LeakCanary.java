@@ -33,159 +33,174 @@ import static com.squareup.leakcanary.internal.LeakCanaryInternals.isInServicePr
 
 public final class LeakCanary {
 
-  /**
-   * Creates a {@link RefWatcher} that works out of the box, and starts watching activity
-   * references (on ICS+).
-   */
-  public static @NonNull RefWatcher install(@NonNull Application application) {
-    return refWatcher(application).listenerServiceClass(DisplayLeakService.class)
-        .excludedRefs(AndroidExcludedRefs.createAppDefaults().build())
-        .buildAndInstall();
-  }
+    /**
+     * Creates a {@link RefWatcher} that works out of the box, and starts watching activity
+     * references (on ICS+).
+     * 用于启动 ActivityRefWatcher的，
+     */
+    public static @NonNull
+    RefWatcher install(@NonNull Application application) {
+        // LeakCanary使用的入口
+        return refWatcher(application) //创建AndroidRefWatcherBuilder对象，显然这里将会使用Builder模式
 
-  /**
-   * Returns the {@link RefWatcher} installed via
-   * {@link AndroidRefWatcherBuilder#buildAndInstall()}, and {@link RefWatcher#DISABLED} is no
-   * {@link RefWatcher} has been installed.
-   */
-  public static @NonNull RefWatcher installedRefWatcher() {
-    RefWatcher refWatcher = LeakCanaryInternals.installedRefWatcher;
-    if (refWatcher == null) {
-      return RefWatcher.DISABLED;
-    }
-    return refWatcher;
-  }
+                // 设置分析结果监听的ListenerService，在这个Service中会通过Notification展示内存泄漏
+                .listenerServiceClass(DisplayLeakService.class)
+                // AndroidExcludedRefs就是一个枚举，用来定义白名单
+                // 在白名单里面的泄漏case，不会被记录，也不会通过DisplayLeakService通知给用户
+                // 如果我们发现有系统的内存泄漏，当前是无法解决的，就可以继承这个类，增加相应的白名单，避免开发时不必要的内存泄漏上报
+                .excludedRefs(AndroidExcludedRefs.createAppDefaults().build())
 
-  public static @NonNull AndroidRefWatcherBuilder refWatcher(@NonNull Context context) {
-    return new AndroidRefWatcherBuilder(context);
-  }
-
-  /**
-   * Blocking inter process call that enables the {@link DisplayLeakActivity}. When you first
-   * install the app, {@link DisplayLeakActivity} is disabled by default and will only be enabled
-   * once a potential leak has been found and the analysis starts. You can call this method to
-   * enable {@link DisplayLeakActivity} before any potential leak has been detected.
-   */
-  public static void enableDisplayLeakActivity(@NonNull Context context) {
-    LeakCanaryInternals.setEnabledBlocking(context, DisplayLeakActivity.class, true);
-  }
-
-  /**
-   * @deprecated Use {@link #setLeakDirectoryProvider(LeakDirectoryProvider)} instead.
-   */
-  @Deprecated
-  public static void setDisplayLeakActivityDirectoryProvider(
-      @NonNull LeakDirectoryProvider leakDirectoryProvider) {
-    setLeakDirectoryProvider(leakDirectoryProvider);
-  }
-
-  /**
-   * Used to customize the location for the storage of heap dumps. The default implementation is
-   * {@link DefaultLeakDirectoryProvider}.
-   *
-   * @throws IllegalStateException if a LeakDirectoryProvider has already been set, including
-   * if the default has been automatically set when installing the ref watcher.
-   */
-  public static void setLeakDirectoryProvider(
-      @NonNull LeakDirectoryProvider leakDirectoryProvider) {
-    LeakCanaryInternals.setLeakDirectoryProvider(leakDirectoryProvider);
-  }
-
-  /** Returns a string representation of the result of a heap analysis. */
-  public static @NonNull String leakInfo(@NonNull Context context,
-      @NonNull HeapDump heapDump,
-      @NonNull AnalysisResult result,
-      boolean detailed) {
-    PackageManager packageManager = context.getPackageManager();
-    String packageName = context.getPackageName();
-    PackageInfo packageInfo;
-    try {
-      packageInfo = packageManager.getPackageInfo(packageName, 0);
-    } catch (PackageManager.NameNotFoundException e) {
-      throw new RuntimeException(e);
-    }
-    String versionName = packageInfo.versionName;
-    int versionCode = packageInfo.versionCode;
-    String info = "In " + packageName + ":" + versionName + ":" + versionCode + ".\n";
-    String detailedString = "";
-    if (result.leakFound) {
-      if (result.excludedLeak) {
-        info += "* EXCLUDED LEAK.\n";
-      }
-      info += "* " + result.className;
-      if (!heapDump.referenceName.equals("")) {
-        info += " (" + heapDump.referenceName + ")";
-      }
-      info += " has leaked:\n" + result.leakTrace.toString() + "\n";
-      if (result.retainedHeapSize != AnalysisResult.RETAINED_HEAP_SKIPPED) {
-        info += "* Retaining: " + formatShortFileSize(context, result.retainedHeapSize) + ".\n";
-      }
-      if (detailed) {
-        detailedString = "\n* Details:\n" + result.leakTrace.toDetailedString();
-      }
-    } else if (result.failure != null) {
-      // We duplicate the library version & Sha information because bug reports often only contain
-      // the stacktrace.
-      info += "* FAILURE in " + LIBRARY_VERSION + " " + GIT_SHA + ":" + Log.getStackTraceString(
-          result.failure) + "\n";
-    } else {
-      info += "* NO LEAK FOUND.\n\n";
-    }
-    if (detailed) {
-      detailedString += "* Excluded Refs:\n" + heapDump.excludedRefs;
+                .buildAndInstall();
     }
 
-    info += "* Reference Key: "
-        + heapDump.referenceKey
-        + "\n"
-        + "* Device: "
-        + Build.MANUFACTURER
-        + " "
-        + Build.BRAND
-        + " "
-        + Build.MODEL
-        + " "
-        + Build.PRODUCT
-        + "\n"
-        + "* Android Version: "
-        + Build.VERSION.RELEASE
-        + " API: "
-        + Build.VERSION.SDK_INT
-        + " LeakCanary: "
-        + LIBRARY_VERSION
-        + " "
-        + GIT_SHA
-        + "\n"
-        + "* Durations: watch="
-        + heapDump.watchDurationMs
-        + "ms, gc="
-        + heapDump.gcDurationMs
-        + "ms, heap dump="
-        + heapDump.heapDumpDurationMs
-        + "ms, analysis="
-        + result.analysisDurationMs
-        + "ms"
-        + "\n"
-        + detailedString;
-
-    return info;
-  }
-
-  /**
-   * Whether the current process is the process running the {@link HeapAnalyzerService}, which is
-   * a different process than the normal app process.
-   */
-  public static boolean isInAnalyzerProcess(@NonNull Context context) {
-    Boolean isInAnalyzerProcess = LeakCanaryInternals.isInAnalyzerProcess;
-    // This only needs to be computed once per process.
-    if (isInAnalyzerProcess == null) {
-      isInAnalyzerProcess = isInServiceProcess(context, HeapAnalyzerService.class);
-      LeakCanaryInternals.isInAnalyzerProcess = isInAnalyzerProcess;
+    /**
+     * Returns the {@link RefWatcher} installed via
+     * {@link AndroidRefWatcherBuilder#buildAndInstall()}, and {@link RefWatcher#DISABLED} is no
+     * {@link RefWatcher} has been installed.
+     */
+    public static @NonNull
+    RefWatcher installedRefWatcher() {
+        RefWatcher refWatcher = LeakCanaryInternals.installedRefWatcher;
+        if (refWatcher == null) {
+            return RefWatcher.DISABLED;
+        }
+        return refWatcher;
     }
-    return isInAnalyzerProcess;
-  }
 
-  private LeakCanary() {
-    throw new AssertionError();
-  }
+    public static @NonNull
+    AndroidRefWatcherBuilder refWatcher(@NonNull Context context) {
+        return new AndroidRefWatcherBuilder(context);
+    }
+
+    /**
+     * Blocking inter process call that enables the {@link DisplayLeakActivity}. When you first
+     * install the app, {@link DisplayLeakActivity} is disabled by default and will only be enabled
+     * once a potential leak has been found and the analysis starts. You can call this method to
+     * enable {@link DisplayLeakActivity} before any potential leak has been detected.
+     */
+    public static void enableDisplayLeakActivity(@NonNull Context context) {
+        LeakCanaryInternals.setEnabledBlocking(context, DisplayLeakActivity.class, true);
+    }
+
+    /**
+     * @deprecated Use {@link #setLeakDirectoryProvider(LeakDirectoryProvider)} instead.
+     */
+    @Deprecated
+    public static void setDisplayLeakActivityDirectoryProvider(
+            @NonNull LeakDirectoryProvider leakDirectoryProvider) {
+        setLeakDirectoryProvider(leakDirectoryProvider);
+    }
+
+    /**
+     * Used to customize the location for the storage of heap dumps. The default implementation is
+     * {@link DefaultLeakDirectoryProvider}.
+     *
+     * @throws IllegalStateException if a LeakDirectoryProvider has already been set, including
+     *                               if the default has been automatically set when installing the ref watcher.
+     */
+    public static void setLeakDirectoryProvider(
+            @NonNull LeakDirectoryProvider leakDirectoryProvider) {
+        LeakCanaryInternals.setLeakDirectoryProvider(leakDirectoryProvider);
+    }
+
+    /**
+     * Returns a string representation of the result of a heap analysis.
+     */
+    public static @NonNull
+    String leakInfo(@NonNull Context context,
+                    @NonNull HeapDump heapDump,
+                    @NonNull AnalysisResult result,
+                    boolean detailed) {
+        PackageManager packageManager = context.getPackageManager();
+        String packageName = context.getPackageName();
+        PackageInfo packageInfo;
+        try {
+            packageInfo = packageManager.getPackageInfo(packageName, 0);
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+        String versionName = packageInfo.versionName;
+        int versionCode = packageInfo.versionCode;
+        String info = "In " + packageName + ":" + versionName + ":" + versionCode + ".\n";
+        String detailedString = "";
+        if (result.leakFound) {
+            if (result.excludedLeak) {
+                info += "* EXCLUDED LEAK.\n";
+            }
+            info += "* " + result.className;
+            if (!heapDump.referenceName.equals("")) {
+                info += " (" + heapDump.referenceName + ")";
+            }
+            info += " has leaked:\n" + result.leakTrace.toString() + "\n";
+            if (result.retainedHeapSize != AnalysisResult.RETAINED_HEAP_SKIPPED) {
+                info += "* Retaining: " + formatShortFileSize(context, result.retainedHeapSize) + ".\n";
+            }
+            if (detailed) {
+                detailedString = "\n* Details:\n" + result.leakTrace.toDetailedString();
+            }
+        } else if (result.failure != null) {
+            // We duplicate the library version & Sha information because bug reports often only contain
+            // the stacktrace.
+            info += "* FAILURE in " + LIBRARY_VERSION + " " + GIT_SHA + ":" + Log.getStackTraceString(
+                    result.failure) + "\n";
+        } else {
+            info += "* NO LEAK FOUND.\n\n";
+        }
+        if (detailed) {
+            detailedString += "* Excluded Refs:\n" + heapDump.excludedRefs;
+        }
+
+        info += "* Reference Key: "
+                + heapDump.referenceKey
+                + "\n"
+                + "* Device: "
+                + Build.MANUFACTURER
+                + " "
+                + Build.BRAND
+                + " "
+                + Build.MODEL
+                + " "
+                + Build.PRODUCT
+                + "\n"
+                + "* Android Version: "
+                + Build.VERSION.RELEASE
+                + " API: "
+                + Build.VERSION.SDK_INT
+                + " LeakCanary: "
+                + LIBRARY_VERSION
+                + " "
+                + GIT_SHA
+                + "\n"
+                + "* Durations: watch="
+                + heapDump.watchDurationMs
+                + "ms, gc="
+                + heapDump.gcDurationMs
+                + "ms, heap dump="
+                + heapDump.heapDumpDurationMs
+                + "ms, analysis="
+                + result.analysisDurationMs
+                + "ms"
+                + "\n"
+                + detailedString;
+
+        return info;
+    }
+
+    /**
+     * Whether the current process is the process running the {@link HeapAnalyzerService}, which is
+     * a different process than the normal app process.
+     */
+    public static boolean isInAnalyzerProcess(@NonNull Context context) {
+        Boolean isInAnalyzerProcess = LeakCanaryInternals.isInAnalyzerProcess;
+        // This only needs to be computed once per process.
+        if (isInAnalyzerProcess == null) {
+            isInAnalyzerProcess = isInServiceProcess(context, HeapAnalyzerService.class);
+            LeakCanaryInternals.isInAnalyzerProcess = isInAnalyzerProcess;
+        }
+        return isInAnalyzerProcess;
+    }
+
+    private LeakCanary() {
+        throw new AssertionError();
+    }
 }

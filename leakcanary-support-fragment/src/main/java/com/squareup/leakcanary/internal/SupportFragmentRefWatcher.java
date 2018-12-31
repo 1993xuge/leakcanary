@@ -23,32 +23,41 @@ import android.view.View;
 import com.squareup.leakcanary.RefWatcher;
 
 class SupportFragmentRefWatcher implements FragmentRefWatcher {
-  private final RefWatcher refWatcher;
+    private final RefWatcher refWatcher;
 
-  SupportFragmentRefWatcher(RefWatcher refWatcher) {
-    this.refWatcher = refWatcher;
-  }
-
-  private final FragmentManager.FragmentLifecycleCallbacks fragmentLifecycleCallbacks =
-      new FragmentManager.FragmentLifecycleCallbacks() {
-
-        @Override public void onFragmentViewDestroyed(FragmentManager fm, Fragment fragment) {
-          View view = fragment.getView();
-          if (view != null) {
-            refWatcher.watch(view);
-          }
-        }
-
-        @Override public void onFragmentDestroyed(FragmentManager fm, Fragment fragment) {
-          refWatcher.watch(fragment);
-        }
-      };
-
-  @Override public void watchFragments(Activity activity) {
-    if (activity instanceof FragmentActivity) {
-      FragmentManager supportFragmentManager =
-          ((FragmentActivity) activity).getSupportFragmentManager();
-      supportFragmentManager.registerFragmentLifecycleCallbacks(fragmentLifecycleCallbacks, true);
+    SupportFragmentRefWatcher(RefWatcher refWatcher) {
+        this.refWatcher = refWatcher;
     }
-  }
+
+    private final FragmentManager.FragmentLifecycleCallbacks fragmentLifecycleCallbacks =
+            new FragmentManager.FragmentLifecycleCallbacks() {
+
+                @Override
+                public void onFragmentViewDestroyed(FragmentManager fm, Fragment fragment) {
+                    // Fragment View Destory
+                    View view = fragment.getView();
+                    if (view != null) {
+                        // 监测 Fragment中的View
+                        refWatcher.watch(view);
+                    }
+                }
+
+                @Override
+                public void onFragmentDestroyed(FragmentManager fm, Fragment fragment) {
+                    // Fragment Destory，watch fragment
+                    refWatcher.watch(fragment);
+                }
+            };
+
+    @Override
+    public void watchFragments(Activity activity) {
+        if (activity instanceof FragmentActivity) {
+            // Activity必须是 FragmentActivity的子类
+            FragmentManager supportFragmentManager =
+                    ((FragmentActivity) activity).getSupportFragmentManager();
+            // 为 Activity注册一个 FragmentLifecycleCallbacks，用来监测 Fragment的生命周期
+            // 同样也是监测到 Fragment Destory时，才去 watch
+            supportFragmentManager.registerFragmentLifecycleCallbacks(fragmentLifecycleCallbacks, true);
+        }
+    }
 }
