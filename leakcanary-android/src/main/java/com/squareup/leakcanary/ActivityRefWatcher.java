@@ -40,7 +40,7 @@ public final class ActivityRefWatcher {
         // 创建一个 ActivityRefWatcher对象
         ActivityRefWatcher activityRefWatcher = new ActivityRefWatcher(application, refWatcher);
 
-        // 注册 Activity生命周期的Callback，
+        // 注册 监听Activity生命周期的Callback，
         // 在这个Callback中只关心所有Activity的Destory事件，因为 LeakCanary是在Activity被销毁时 才去watch
         application.registerActivityLifecycleCallbacks(activityRefWatcher.lifecycleCallbacks);
     }

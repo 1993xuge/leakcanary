@@ -49,6 +49,8 @@ public interface FragmentRefWatcher {
             }
 
             try {
+                // SupportFragmentRefWatcher 属于leakcanary-support-fragment中的类
+                // 如果未依赖 leakcanary-support-fragment 则找不到这个类
                 Class<?> fragmentRefWatcherClass = Class.forName(SUPPORT_FRAGMENT_REF_WATCHER_CLASS_NAME);
                 Constructor<?> constructor =
                         fragmentRefWatcherClass.getDeclaredConstructor(RefWatcher.class);

@@ -49,7 +49,6 @@ public final class LeakCanary {
                 // 在白名单里面的泄漏case，不会被记录，也不会通过DisplayLeakService通知给用户
                 // 如果我们发现有系统的内存泄漏，当前是无法解决的，就可以继承这个类，增加相应的白名单，避免开发时不必要的内存泄漏上报
                 .excludedRefs(AndroidExcludedRefs.createAppDefaults().build())
-
                 .buildAndInstall();
     }
 

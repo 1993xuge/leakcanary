@@ -199,6 +199,7 @@ public final class RefWatcher {
     }
 
     /**
+     *
      * 循环从引用队列中取出加入其中的虚引用KeyedWeakReference对象，将标识这个虚引用的key从retainedKeys中移除。
      * retainedKeys中剩下的就是 标识 未被垃圾回收的被检测对象的虚引用的key
      */
